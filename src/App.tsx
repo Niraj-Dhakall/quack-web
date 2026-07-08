@@ -54,7 +54,7 @@ export default function App() {
     state.session != null && state.status === "reconnecting";
 
   return (
-    <div className="min-h-full">
+    <div className="h-full">
       {screen}
       {showReconnect && <ReconnectOverlay />}
     </div>

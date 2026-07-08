@@ -1,165 +1,179 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useGame } from "@/state/GameProvider";
-import { RouletteBoard } from "@/components/RouletteBoard";
+import { RouletteTable, type ZoneStack } from "@/components/RouletteTable";
 import { ChipCount } from "@/components/ChipCount";
 import { StatusBadge } from "@/components/StatusBadge";
-import type { BetType } from "@/types";
+import { ZONE_BY_ID, labelForBet } from "@/lib/betZones";
 
-const DENOMINATIONS = [25, 50, 100, 500];
-
-interface PendingBet {
+interface Placement {
   id: string;
-  betType: BetType;
-  target: number | string;
-  amount: number;
-}
-
-function describe(bet: { betType: BetType; target: number | string }): string {
-  switch (bet.betType) {
-    case "number":
-      return `Number ${bet.target}`;
-    case "color":
-      return `${String(bet.target)[0].toUpperCase()}${String(bet.target).slice(1)}`;
-    case "parity":
-      return String(bet.target) === "even" ? "Even" : "Odd";
-    case "dozen":
-      return `Dozen ${bet.target}`;
-  }
+  zoneId: string;
+  denom: number;
 }
 
 export function BettingScreen() {
   const { state, secondsLeft, placeBet } = useGame();
-  const [denom, setDenom] = useState(DENOMINATIONS[2]);
-  const [pending, setPending] = useState<PendingBet[]>([]);
+  const [placements, setPlacements] = useState<Placement[]>([]);
 
   const player = state.player;
-  if (!player) return null;
-
-  const pendingTotal = pending.reduce((sum, b) => sum + b.amount, 0);
-  const available = player.chips - pendingTotal;
   const bettingOpen = state.round.status === "betting";
 
-  function addBet(betType: BetType, target: number | string) {
+  const staked = placements.reduce((sum, p) => sum + p.denom, 0);
+  const available = (player?.chips ?? 0) - staked;
+
+  // Aggregate placed chips per zone for board rendering + bet slip.
+  const zoneStacks = useMemo(() => {
+    const map = new Map<string, ZoneStack>();
+    for (const p of placements) {
+      const prev = map.get(p.zoneId);
+      if (prev) {
+        prev.total += p.denom;
+        prev.count += 1;
+        prev.topDenom = p.denom;
+      } else {
+        map.set(p.zoneId, { total: p.denom, count: 1, topDenom: p.denom });
+      }
+    }
+    return map;
+  }, [placements]);
+
+  if (!player) return null;
+
+  function place(zoneId: string, denom: number) {
     if (!bettingOpen || denom > available) return;
-    setPending((p) => [
-      ...p,
-      { id: crypto.randomUUID(), betType, target, amount: denom },
-    ]);
+    setPlacements((p) => [...p, { id: crypto.randomUUID(), zoneId, denom }]);
   }
 
-  function removeBet(id: string) {
-    setPending((p) => p.filter((b) => b.id !== id));
+  function removeLast(zoneId: string) {
+    setPlacements((p) => {
+      for (let i = p.length - 1; i >= 0; i--) {
+        if (p[i].zoneId === zoneId) return p.filter((_, idx) => idx !== i);
+      }
+      return p;
+    });
+  }
+
+  function undo() {
+    setPlacements((p) => p.slice(0, -1));
+  }
+
+  function clearAll() {
+    setPlacements([]);
   }
 
   function confirm() {
-    for (const bet of pending) {
-      placeBet({ betType: bet.betType, target: bet.target, amount: bet.amount });
+    for (const [zoneId, stack] of zoneStacks) {
+      const zone = ZONE_BY_ID.get(zoneId);
+      if (!zone) continue;
+      placeBet({
+        betType: zone.betType,
+        target: zone.target,
+        amount: stack.total,
+      });
     }
-    setPending([]);
+    clearAll();
   }
 
   return (
-    <div className="mx-auto flex min-h-full max-w-4xl flex-col gap-4 p-4">
-      <header className="flex items-center justify-between">
-        <div>
-          <p className="text-lg font-bold">{player.displayName}</p>
-          <p className="text-xs text-white/50">Seat {player.seat}</p>
-        </div>
+    <div className="flex h-full flex-col gap-3 p-3">
+      {/* Everything sits in a compact bar on top; the table fills the rest. */}
+      <header className="flex flex-wrap items-center gap-3 rounded-2xl bg-night-800/70 p-3 ring-1 ring-white/10">
         <div className="flex items-center gap-3">
+          <div className="leading-tight">
+            <p className="text-base font-bold">{player.displayName}</p>
+            <p className="text-xs text-white/50">Seat {player.seat}</p>
+          </div>
           <ChipCount chips={available} />
           <StatusBadge status={state.status} />
         </div>
-      </header>
 
-      <div className="flex items-center justify-between rounded-2xl bg-night-800/70 p-4 ring-1 ring-white/10">
-        <span className="text-sm uppercase tracking-wide text-white/50">
-          {bettingOpen ? "Betting closes in" : "Betting closed"}
-        </span>
-        <span
-          className={
-            "text-3xl font-black tabular-nums " +
-            (secondsLeft <= 5 && bettingOpen ? "text-red-400" : "text-duck")
-          }
-        >
-          {bettingOpen ? `${secondsLeft}s` : "—"}
-        </span>
-      </div>
-
-      <RouletteBoard onPlace={addBet} disabled={!bettingOpen} />
-
-      <div className="flex flex-wrap gap-2">
-        {DENOMINATIONS.map((d) => (
-          <button
-            key={d}
-            type="button"
-            onClick={() => setDenom(d)}
+        <div className="flex items-center gap-2 rounded-xl bg-night-900/70 px-4 py-2">
+          <span className="text-[10px] uppercase tracking-wide text-white/50">
+            {bettingOpen ? "Closes in" : "Closed"}
+          </span>
+          <span
             className={
-              "rounded-full px-4 py-2 text-sm font-bold ring-1 transition " +
-              (denom === d
-                ? "bg-duck text-night-950 ring-duck"
-                : "bg-night-800 text-white/80 ring-white/10")
+              "text-2xl font-black tabular-nums " +
+              (secondsLeft <= 5 && bettingOpen ? "text-red-400" : "text-duck")
             }
           >
-            ${d}
-          </button>
-        ))}
-      </div>
-
-      <div className="rounded-2xl bg-night-800/70 p-4 ring-1 ring-white/10">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-white/60">
-            Bet Slip
-          </h2>
-          <span className="text-sm text-white/50">
-            Staked ${pendingTotal.toLocaleString()}
+            {bettingOpen ? `${secondsLeft}s` : "—"}
           </span>
         </div>
 
-        {pending.length === 0 && state.bets.length === 0 ? (
-          <p className="py-4 text-center text-sm text-white/40">
-            Tap the board to add a bet.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {state.bets.map((bet, i) => (
-              <li
-                key={`confirmed-${i}`}
-                className="flex items-center justify-between rounded-lg bg-night-900/60 px-3 py-2 text-sm"
-              >
-                <span className="text-emerald-400">
-                  ✓ {describe(bet)} · ${bet.amount}
-                </span>
-                <span className="text-xs text-white/40">confirmed</span>
-              </li>
-            ))}
-            {pending.map((bet) => (
-              <li
-                key={bet.id}
-                className="flex items-center justify-between rounded-lg bg-night-900/60 px-3 py-2 text-sm"
-              >
-                <span>
-                  {describe(bet)} · ${bet.amount}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeBet(bet.id)}
-                  className="rounded-md bg-red-700/70 px-2 py-1 text-xs font-semibold hover:bg-red-600"
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
+          {zoneStacks.size === 0 && state.bets.length === 0 ? (
+            <span className="text-sm text-white/40">
+              Drag chips onto the table to bet.
+            </span>
+          ) : (
+            <>
+              {state.bets.map((bet, i) => (
+                <span
+                  key={`confirmed-${i}`}
+                  className="flex shrink-0 items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1 text-xs text-emerald-300 ring-1 ring-emerald-500/30"
                 >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+                  ✓ {labelForBet(bet.betType, bet.target)} · ${bet.amount}
+                </span>
+              ))}
+              {[...zoneStacks.entries()].map(([zoneId, stack]) => {
+                const zone = ZONE_BY_ID.get(zoneId);
+                if (!zone) return null;
+                return (
+                  <button
+                    key={zoneId}
+                    type="button"
+                    onClick={() => removeLast(zoneId)}
+                    className="flex shrink-0 items-center gap-1 rounded-full bg-night-900/80 px-3 py-1 text-xs ring-1 ring-white/10 transition active:scale-[0.97]"
+                  >
+                    <span>
+                      {labelForBet(zone.betType, zone.target)} · ${stack.total}
+                    </span>
+                    <span className="text-red-400">×</span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+        </div>
 
-        <button
-          type="button"
-          onClick={confirm}
-          disabled={!bettingOpen || pending.length === 0}
-          className="mt-3 w-full rounded-xl bg-emerald-500 py-3 text-lg font-bold text-night-950 transition active:scale-[0.98] disabled:opacity-40"
-        >
-          Confirm {pending.length > 0 ? `(${pending.length})` : ""}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={undo}
+            disabled={placements.length === 0}
+            className="rounded-xl bg-night-700 px-4 py-2 text-sm font-semibold ring-1 ring-white/10 transition active:scale-[0.98] disabled:opacity-40"
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            onClick={clearAll}
+            disabled={placements.length === 0}
+            className="rounded-xl bg-night-700 px-4 py-2 text-sm font-semibold ring-1 ring-white/10 transition active:scale-[0.98] disabled:opacity-40"
+          >
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={confirm}
+            disabled={!bettingOpen || placements.length === 0}
+            className="rounded-xl bg-emerald-500 px-5 py-2 text-base font-bold text-night-950 transition active:scale-[0.98] disabled:opacity-40"
+          >
+            Confirm ${staked.toLocaleString()}
+          </button>
+        </div>
+      </header>
+
+      <div className="min-h-0 flex-1">
+        <RouletteTable
+          stacks={zoneStacks}
+          onPlace={place}
+          onRemoveLast={removeLast}
+          disabled={!bettingOpen}
+          available={available}
+          rotate
+        />
       </div>
     </div>
   );

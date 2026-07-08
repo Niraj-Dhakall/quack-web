@@ -42,7 +42,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
       deadlineRef.current = Date.now() + message.duration * 1000;
     } else if (message.type === "BETTING_CLOSED") {
       deadlineRef.current = null;
-    } else if (message.type === "STATE_SYNC" && message.round.status === "betting") {
+    } else if (
+      message.type === "STATE_SYNC" &&
+      message.round.status === "betting"
+    ) {
       deadlineRef.current = Date.now() + message.round.timeRemaining * 1000;
     }
     dispatch({ type: "SERVER_MESSAGE", message });

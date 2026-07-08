@@ -11,7 +11,13 @@ export interface Player {
   seat: number;
 }
 
-export type BetType = "number" | "color" | "parity" | "dozen";
+export type BetType =
+  | "number"
+  | "color"
+  | "parity"
+  | "dozen"
+  | "column"
+  | "range";
 
 export interface Bet {
   playerId: UUID;

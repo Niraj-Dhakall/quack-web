@@ -44,6 +44,16 @@ function payout(bet: Bet, winningNumber: number): number {
       const dozen = Math.ceil(winningNumber / 12);
       return Number(bet.target) === dozen ? bet.amount * 3 : 0;
     }
+    case "column": {
+      if (winningNumber === 0) return 0;
+      const column = ((winningNumber - 1) % 3) + 1;
+      return Number(bet.target) === column ? bet.amount * 3 : 0;
+    }
+    case "range": {
+      if (winningNumber === 0) return 0;
+      const range = winningNumber <= 18 ? "low" : "high";
+      return bet.target === range ? bet.amount * 2 : 0;
+    }
     default:
       return 0;
   }

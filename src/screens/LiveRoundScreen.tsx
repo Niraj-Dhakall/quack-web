@@ -3,7 +3,7 @@ import { ChipCount } from "@/components/ChipCount";
 import { StatusBadge } from "@/components/StatusBadge";
 
 export function LiveRoundScreen() {
-  const { state, quack } = useGame();
+  const { state } = useGame();
   const player = state.player;
   if (!player) return null;
 
@@ -35,13 +35,7 @@ export function LiveRoundScreen() {
         </p>
       </div>
 
-      <button
-        type="button"
-        onClick={quack}
-        className="w-full max-w-sm rounded-3xl bg-duck py-6 text-3xl font-black text-night-950 shadow-lg transition active:scale-95"
-      >
-        🦆 QUACK!
-      </button>
+      
     </div>
   );
 }
